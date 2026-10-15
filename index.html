@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML 단일 파일 탄막 슈팅 게임</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #111;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+        }
+        canvas {
+            border: 2px solid #444;
+            background: #000;
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.2);
+        }
+        .info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #aaa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
+    <div class="info">
+        이동: 방향키 또는 WASD | 발사: 자동 | 재시작: 게임 오버 후 스페이스바
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // 게임 상태
+        let gameState = 'START'; // START, PLAYING, GAMEOVER
+        let score = 0;
+        let lives = 3;
+        let frameCount = 0;
+
+        // 키 입력 처리
+        const keys = {};
+        window.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (gameState === 'START' && e.code === 'Space') {
+                initGame();
+                gameState = 'PLAYING';
+            } else if (gameState === 'GAMEOVER' && e.code === 'Space') {
+                initGame();
+                gameState = 'PLAYING';
+            }
+        });
+        window.addEventListener('keyup', e => {
+            keys[e.code] = false;
+        });
+
+        // 플레이어 객체
+        let player = {
+            x: canvas.width / 2,
+            y: canvas.height - 80,
+            speed: 4,
+            radius: 6,
+            shootTimer: 0
+        };
+
+        let bullets = [];
+        let enemies = [];
+        let enemyBullets = [];
+        let particles = [];
+
+        function initGame() {
+            score = 0;
+            lives = 3;
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 80;
+            bullets = [];
+            enemies = [];
+            enemyBullets = [];
+            particles = [];
+            frameCount = 0;
+            
+            // 보스 적 생성
+            enemies.push({
+                x: canvas.width / 2,
+                y: 100,
+                radius: 30,
+                hp: 500,
+                maxHp: 500,
+                patternTimer: 0
+            });
+        }
+
+        // 파티클 효과 생성
+        function createParticles(x, y, color, count = 10) {
+            for (let i = 0; i < count; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const speed = Math.random() * 3 + 1;
+                particles.push({
+                    x: x,
+                    y: y,
+                    vx: Math.cos(angle) * speed,
+                    vy: Math.sin(angle) * speed,
+                    alpha: 1.0,
+                    color: color
+                });
+            }
+        }
+
+        // 게임 업데이트
+        function update() {
+            if (gameState !== 'PLAYING') return;
+
+            frameCount++;
+
+            // 1. 플레이어 이동
+            if ((keys['ArrowLeft'] || keys['KeyA']) && player.x > player.radius) player.x -= player.speed;
+            if ((keys['ArrowRight'] || keys['KeyD']) && player.x < canvas.width - player.radius) player.x += player.speed;
+            if ((keys['ArrowUp'] || keys['KeyW']) && player.y > player.radius) player.y -= player.speed;
+            if ((keys['ArrowDown'] || keys['KeyS']) && player.y < canvas.height - player.radius) player.y += player.speed;
+
+            // 2. 플레이어 총알 발사
+            player.shootTimer++;
+            if (player.shootTimer % 6 === 0) {
+                bullets.push({ x: player.x - 8, y: player.y, vx: 0, vy: -12, radius: 4 });
+                bullets.push({ x: player.x + 8, y: player.y, vx: 0, vy: -12, radius: 4 });
+            }
+
+            // 3. 총알 업데이트 (플레이어)
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                let b = bullets[i];
+                b.x += b.vx;
+                b.y += b.vy;
+                if (b.y < 0) bullets.splice(i, 1);
+            }
+
+            // 4. 적(보스) 패턴 및 탄막 생성
+            enemies.forEach(enemy => {
+                enemy.patternTimer++;
+
+                // 원형 탄막 패턴 (나선형 회전 탄막)
+                if (enemy.patternTimer % 15 === 0) {
+                    const count = 12;
+                    const offset = (enemy.patternTimer * 0.05) % (Math.PI * 2);
+                    for (let i = 0; i < count; i++) {
+                        const angle = offset + (i * Math.PI * 2) / count;
+                        const speed = 2.5;
+                        enemyBullets.push({
+                            x: enemy.x,
+                            y: enemy.y,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            radius: 4
+                        });
+                    }
+                }
+
+                // 조준 탄막 패턴
+                if (enemy.patternTimer % 45 === 0) {
+                    const angleToPlayer = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+                    for (let i = -1; i <= 1; i++) {
+                        const angle = angleToPlayer + i * 0.15;
+                        const speed = 4;
+                        enemyBullets.push({
+                            x: enemy.x,
+                            y: enemy.y,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            radius: 5
+                        });
+                    }
+                }
+
+                // 플레이어 총알과 적 충돌 체크
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    let b = bullets[i];
+                    let dist = Math.hypot(b.x - enemy.x, b.y - enemy.y);
+                    if (dist < enemy.radius + b.radius) {
+                        enemy.hp -= 1;
+                        score += 10;
+                        createParticles(b.x, b.y, '#0ff', 2);
+                        bullets.splice(i, 1);
+
+                        if (enemy.hp <= 0) {
+                            createParticles(enemy.x, enemy.y, '#ff0', 50);
+                            score += 5000;
+                            gameState = 'GAMEOVER'; // 게임 클리어 대용
+                        }
+                    }
+                }
+            });
+
+            // 5. 적 탄막 업데이트 및 충돌 체크
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                let eb = enemyBullets[i];
+                eb.x += eb.vx;
+                eb.y += eb.vy;
+
+                // 화면 밖으로 나가면 제거
+                if (eb.x < 0 || eb.x > canvas.width || eb.y < 0 || eb.y > canvas.height) {
+                    enemyBullets.splice(i, 1);
+                    continue;
+                }
+
+                // 플레이어와 적 탄막 충돌 판정 (판정점은 플레이어 중심의 작은 원)
+                let dist = Math.hypot(eb.x - player.x, eb.y - player.y);
+                if (dist < player.radius + eb.radius - 2) {
+                    enemyBullets.splice(i, 1);
+                    lives--;
+                    createParticles(player.x, player.y, '#f00', 20);
+                    if (lives <= 0) {
+                        gameState = 'GAMEOVER';
+                    }
+                }
+            }
+
+            // 6. 파티클 업데이트
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.alpha -= 0.03;
+                if (p.alpha <= 0) particles.splice(i, 1);
+            }
+        }
+
+        // 화면 렌더링
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            if (gameState === 'START') {
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 24px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText('DANMAKU SHOOTER', canvas.width / 2, canvas.height / 2 - 40);
+                ctx.font = '16px sans-serif';
+                ctx.fillStyle = '#0ff';
+                ctx.fillText('스페이스바를 눌러 시작하세요', canvas.width / 2, canvas.height / 2 + 10);
+                return;
+            }
+
+            // 파티클 그리기
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.alpha;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+
+            // 적(보스) 그리기
+            enemies.forEach(enemy => {
+                ctx.fillStyle = '#f33';
+                ctx.beginPath();
+                ctx.arc(enemy.x, enemy.y, enemy.radius, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#fff';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 보스 체력바
+                ctx.fillStyle = '#444';
+                ctx.fillRect(50, 20, canvas.width - 100, 8);
+                ctx.fillStyle = '#f33';
+                ctx.fillRect(50, 20, (canvas.width - 100) * (enemy.hp / enemy.maxHp), 8);
+            });
+
+            // 적 탄막 그리기
+            ctx.fillStyle = '#f80';
+            enemyBullets.forEach(eb => {
+                ctx.beginPath();
+                ctx.arc(eb.x, eb.y, eb.radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // 플레이어 총알 그리기
+            ctx.fillStyle = '#0ff';
+            bullets.forEach(b => {
+                ctx.fillRect(b.x - 2, b.y - 8, 4, 10);
+            });
+
+            // 플레이어 그리기
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.moveTo(player.x, player.y - player.radius - 4);
+            ctx.lineTo(player.x - player.radius, player.y + player.radius);
+            ctx.lineTo(player.x + player.radius, player.y + player.radius);
+            ctx.closePath();
+            ctx.fill();
+
+            // 플레이어 판정점 (핵심)
+            ctx.fillStyle = '#f00';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // UI (점수, 목숨) 표시
+            ctx.fillStyle = '#fff';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'left';
+            ctx.fillText(`SCORE: ${score}`, 20, 50);
+            ctx.fillText(`LIVES: ${'❤️'.repeat(lives)}`, 20, 70);
+
+            // 게임 오버 화면
+            if (gameState === 'GAMEOVER') {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff';
+                ctx.font = 'bold 28px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(enemies[0].hp <= 0 ? 'VICTORY!' : 'GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+                ctx.font = '16px sans-serif';
+                ctx.fillStyle = '#aaa';
+                ctx.fillText('스페이스바를 눌러 다시 시작', canvas.width / 2, canvas.height / 2 + 20);
+            }
+        }
+
+        // 메인 게임 루프
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
